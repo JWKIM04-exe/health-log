@@ -347,7 +347,7 @@ function routineEditor(r) {
       if (m === 'up' && i > 0) [draft.items[i-1], draft.items[i]] = [draft.items[i], draft.items[i-1]];
       if (m === 'down' && i < draft.items.length - 1) [draft.items[i+1], draft.items[i]] = [draft.items[i], draft.items[i+1]];
       if (m === 'rm') draft.items.splice(i, 1);
-      if (m === 'add') { pickExercise(id => { draft.items.push(id); draw(); }, true); return; }
+      if (m === 'add') { pickExercise(id => { draft.items.push(id); draw(); }); return; }
       if (m === 'save') {
         if (!draft.name.trim()) { alert('루틴 이름을 입력하세요'); return; }
         draft.name = draft.name.trim();
@@ -362,35 +362,48 @@ function routineEditor(r) {
 }
 
 /* 운동 선택 모달 */
-function pickExercise(onPick, multi) {
-  let part = '전체', q = '';
-  const draw = () => {
-    const list = db.exercises.filter(e => (part === '전체' || e.part === part) && e.name.includes(q));
-    modal(`<h2>운동 선택</h2>
-      <input type="text" id="exQ" placeholder="검색" value="${esc(q)}">
-      <div class="tabs" style="margin-top:8px">${['전체', ...PARTS].map(p => `<button class="btn sm ${p === part ? 'on' : ''}" data-m="part" data-p="${p}">${p}</button>`).join('')}</div>
-      ${list.map(e => `<button class="pick" data-m="pick" data-id="${e.id}">${esc(e.name)}<span class="sub">${e.part}</span></button>`).join('') || '<div class="empty">없어요. 아래에서 직접 추가하세요.</div>'}
-      <div style="height:12px"></div>
-      <div class="row"><input type="text" id="exNew" placeholder="새 운동 이름" maxlength="30">
-        <select id="exNewPart" style="width:90px">${PARTS.map(p => `<option ${p === (part === '전체' ? '기타' : part) ? 'selected' : ''}>${p}</option>`).join('')}</select></div>
-      <button class="btn block" data-m="new" style="margin-top:8px">＋ 새 운동 만들고 추가</button>
-      <button class="btn ghost block" data-m="close">닫기</button>`, (m, el) => {
-        if (m === 'part') { part = el.dataset.p; q = document.getElementById('exQ').value; draw(); }
-        if (m === 'pick') { closeModal(); onPick(el.dataset.id); }
-        if (m === 'new') {
-          const name = document.getElementById('exNew').value.trim();
-          if (!name) return;
-          const found = db.exercises.find(e => e.name === name);
-          const e = found || { id: uid(), name, part: document.getElementById('exNewPart').value, custom: true };
-          if (!found) db.exercises.push(e);
-          save(); closeModal(); onPick(e.id);
-        }
-        if (m === 'close') closeModal();
-      });
-    const qi = document.getElementById('exQ');
-    qi.addEventListener('input', () => { q = qi.value; const pos = qi.selectionStart; draw(); const n = document.getElementById('exQ'); n.focus(); n.setSelectionRange(pos, pos); });
-  };
-  draw();
+function pickExercise(onPick) {
+  // 검색창은 다시 그리지 않고 목록만 갱신 → 한글 조합(ㄷ+ㅓ+ㅁ→덤)이 깨지지 않음
+  let part = '전체';
+  const norm = t => t.replace(/\s+/g, '').toLowerCase();
+  modal(`<h2>운동 선택</h2>
+    <input type="text" id="exQ" placeholder="검색 (예: 벤치)" autocomplete="off">
+    <div class="tabs" id="exParts" style="margin-top:8px">${['전체', ...PARTS].map(p => `<button class="btn sm ${p === part ? 'on' : ''}" data-m="part" data-p="${p}">${p}</button>`).join('')}</div>
+    <div id="exList"></div>
+    <div style="height:12px"></div>
+    <div class="row"><input type="text" id="exNew" placeholder="새 운동 이름" maxlength="30" autocomplete="off">
+      <select id="exNewPart" style="width:90px">${PARTS.map(p => `<option ${p === '기타' ? 'selected' : ''}>${p}</option>`).join('')}</select></div>
+    <button class="btn block" data-m="new" style="margin-top:8px">＋ 새 운동 만들고 추가</button>
+    <button class="btn ghost block" data-m="close">닫기</button>`, (m, el) => {
+      if (m === 'part') {
+        part = el.dataset.p;
+        document.querySelectorAll('#exParts button').forEach(b => b.classList.toggle('on', b.dataset.p === part));
+        if (part !== '전체') document.getElementById('exNewPart').value = part;
+        drawList();
+      }
+      if (m === 'pick') { closeModal(); onPick(el.dataset.id); }
+      if (m === 'new') {
+        const name = document.getElementById('exNew').value.trim();
+        if (!name) { document.getElementById('exNew').focus(); return; }
+        const found = db.exercises.find(e => norm(e.name) === norm(name));
+        const e = found || { id: uid(), name: name.slice(0, 30), part: document.getElementById('exNewPart').value, custom: true };
+        if (!found) db.exercises.push(e);
+        save(); closeModal(); onPick(e.id);
+      }
+      if (m === 'close') closeModal();
+    });
+  const qi = document.getElementById('exQ'), listEl = document.getElementById('exList'), newEl = document.getElementById('exNew');
+  let newTouched = false;
+  newEl.addEventListener('input', () => { newTouched = true; });
+  function drawList() {
+    const q = norm(qi.value);
+    const list = db.exercises.filter(e => (part === '전체' || e.part === part) && norm(e.name).includes(q));
+    listEl.innerHTML = list.map(e => `<button class="pick" data-m="pick" data-id="${e.id}">${esc(e.name)}<span class="sub">${e.part}</span></button>`).join('')
+      || '<div class="empty">검색 결과가 없어요. 아래에서 새 운동으로 추가하세요.</div>';
+    if (!newTouched) newEl.value = list.length ? '' : qi.value.trim();
+  }
+  qi.addEventListener('input', drawList);
+  drawList();
 }
 
 /* 루틴 공유 코드: 운동 이름으로 저장해서 다른 기기에서도 매칭 */
@@ -546,7 +559,7 @@ function renderSettings() {
       <div style="height:8px"></div>
       <label class="btn block" style="display:block;text-align:center">📥 백업 파일 불러오기<input type="file" accept=".json" id="importFile" hidden></label></div>
     <div class="card"><button class="btn danger block" data-act="user-delete">현재 사용자와 기록 전부 삭제</button></div>
-    <div class="sub" style="text-align:center">헬스 기록 v1.1</div>`;
+    <div class="sub" style="text-align:center">헬스 기록 v1.2</div>`;
   document.getElementById('importFile').addEventListener('change', importBackup);
 }
 function exportBackup() {
