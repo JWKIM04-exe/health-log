@@ -171,7 +171,7 @@ db.myPosts ||= {}; // postId -> 삭제용 토큰
 db.myCommunity ||= {}; // 커뮤니티 글/댓글 id -> 삭제용 토큰
 async function loadCommunity() {
   ui.commLoading = true; ui.commErr = null;
-  try { ui.comm = await sb('/rest/v1/community?select=id,created_at,user_name,body,comments(id,created_at,user_name,body)&order=created_at.desc&comments.order=created_at.asc&limit=50'); }
+  try { ui.comm = await sb('/rest/v1/community?select=id,created_at,user_name,body,image_url,comments(id,created_at,user_name,body)&order=created_at.desc&comments.order=created_at.asc&limit=50'); }
   catch (e) { ui.commErr = e.message; }
   ui.commLoading = false;
   if (tab === 'history' && ui.histMode === 'comm') render();
@@ -181,6 +181,27 @@ async function sendCommunity(table, payload) {
   await sb('/rest/v1/' + table, { method: 'POST', headers: { Prefer: 'return=minimal' },
     body: JSON.stringify({ id, user_name: me().name, owner_token: token, ...payload }) });
   db.myCommunity[id] = token; save();
+}
+/* 사진: 폰 사진을 최대 1280px JPEG로 줄여서 올림 (데이터 절약) */
+function shrinkImage(file, max = 1280) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file), img = new Image();
+    img.onload = () => {
+      const k = Math.min(1, max / Math.max(img.width, img.height));
+      const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url);
+      c.toBlob(b => b ? resolve(b) : reject(new Error('사진 변환 실패')), 'image/jpeg', 0.82);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('이 사진 형식은 열 수 없어요 (JPG/PNG로 시도해주세요)')); };
+    img.src = url;
+  });
+}
+async function uploadPhoto(blob) {
+  const path = `${dkey(Date.now())}/${rid()}.jpg`;
+  const res = await fetch(`${SB_URL}/storage/v1/object/photos/${path}`, { method: 'POST',
+    headers: { apikey: SB_KEY, 'Content-Type': 'image/jpeg', 'cache-control': '31536000' }, body: blob });
+  if (!res.ok) throw new Error(`사진 업로드 실패 (${res.status}) ${(await res.text()).slice(0, 120)}`);
+  return `${SB_URL}/storage/v1/object/public/photos/${path}`;
 }
 async function deleteCommunity(fn, id) {
   await sb('/rest/v1/rpc/' + fn, { method: 'POST', body: JSON.stringify({ p_id: id, p_token: db.myCommunity[id] }) });
@@ -267,7 +288,7 @@ function bestWeight(exId, excludeId) {
 
 /* =========================== 라우팅 =========================== */
 let tab = 'workout';
-let ui = { comm: null, commLoading: false, commErr: null, commOpen: null, commDraft: '', cmtDraft: {}, statEx: null, histOpen: null, calMonth: null, histMode: 'mine', feed: null, feedOpen: null, feedLoading: false, feedErr: null };
+let ui = { commImg: null, comm: null, commLoading: false, commErr: null, commOpen: null, commDraft: '', cmtDraft: {}, statEx: null, histOpen: null, calMonth: null, histMode: 'mine', feed: null, feedOpen: null, feedLoading: false, feedErr: null };
 const view = document.getElementById('view');
 
 function render() {
@@ -488,7 +509,9 @@ function renderCommunity() {
     return `<div class="card">
       <div class="row between"><b>${esc(p.user_name)}${mine ? ' <span class="chip">나</span>' : ''}</b>
         <span class="sub">${timeAgo(new Date(p.created_at).getTime())}${mine ? ` · <button class="btn ghost sm" style="padding:2px 4px;color:var(--warn)" data-act="comm-del" data-id="${p.id}">삭제</button>` : ''}</span></div>
-      <div style="margin:8px 0;white-space:pre-wrap;word-break:break-word">${esc(p.body)}</div>
+      ${p.body ? `<div style="margin:8px 0;white-space:pre-wrap;word-break:break-word">${esc(p.body)}</div>` : ''}
+      ${p.image_url && p.image_url.startsWith(SB_URL + '/storage/') ? `<img src="${esc(p.image_url)}" loading="lazy" alt="${esc(p.user_name)} 님의 사진" data-act="img-view"
+        style="width:100%;max-height:420px;object-fit:cover;border-radius:10px;margin:6px 0;display:block;background:var(--card2);cursor:zoom-in">` : ''}
       <button class="btn ghost sm" style="padding-left:0" data-act="comm-toggle" data-id="${p.id}">💬 댓글 ${cs.length}${open ? ' ▲' : ''}</button>
       ${open ? `<div>${cs.map(c => `<div style="padding:8px 0;border-top:1px solid var(--line)">
           <div class="row between"><b style="font-size:14px">${esc(c.user_name)}</b>
@@ -500,9 +523,20 @@ function renderCommunity() {
   }).join('');
   view.innerHTML = `<div class="row between"><h2>운동 기록</h2><button class="btn sm" data-act="comm-refresh">↻ 새로고침</button></div>${histSwitch()}
     <div class="card"><textarea id="commIn" rows="3" maxlength="1000" placeholder="자유롭게 글을 남겨보세요 (운동 질문, 인증, 같이 운동할 사람 등)">${esc(ui.commDraft)}</textarea>
-      <div class="row between" style="margin-top:8px"><span class="sub">${esc(me().name)} 이름으로 올라가요</span>
+      ${ui.commImg ? `<div style="position:relative;margin-top:8px;display:inline-block">
+        <img src="${ui.commImg.url}" style="max-width:100%;max-height:220px;border-radius:10px;display:block" alt="첨부 사진">
+        <button class="btn sm" style="position:absolute;top:6px;right:6px;background:rgba(0,0,0,.65);color:#fff" data-act="comm-img-rm">✕</button></div>` : ''}
+      <div class="row between" style="margin-top:8px">
+        <label class="btn sm" style="cursor:pointer">📷 사진<input type="file" accept="image/*" id="commFile" hidden></label>
+        <span class="sub" style="flex:1;text-align:right">${esc(me().name)} 이름으로</span>
         <button class="btn primary sm" data-act="comm-send">글 올리기</button></div></div>
     ${body}`;
+  document.getElementById('commFile').addEventListener('change', ev => {
+    const f = ev.target.files[0]; if (!f) return;
+    if (!f.type.startsWith('image/')) return notify('사진 파일만 올릴 수 있어요');
+    shrinkImage(f).then(blob => { if (ui.commImg) URL.revokeObjectURL(ui.commImg.url);
+      ui.commImg = { blob, url: URL.createObjectURL(blob) }; render(); }, e => notify(e.message));
+  });
 }
 function renderFeed() {
   if (!ui.feed && !ui.feedLoading && !ui.feedErr) loadFeed();
@@ -637,7 +671,7 @@ function renderSettings() {
       <label class="btn block" style="display:block;text-align:center">📥 백업 파일 불러오기<input type="file" accept=".json,application/json" id="importFile" hidden></label>
       <button class="btn block" data-act="import-paste" style="margin-top:8px">📋 복사한 백업 붙여넣기</button></div>
     <div class="card"><button class="btn danger block" data-act="user-delete">현재 사용자와 기록 전부 삭제</button></div>
-    <div class="sub" style="text-align:center">헬스 기록 v1.4</div>`;
+    <div class="sub" style="text-align:center">헬스 기록 v1.5</div>`;
   document.getElementById('importFile').addEventListener('change', importBackup);
 }
 function exportBackup() {
@@ -852,14 +886,19 @@ view.addEventListener('click', ev => {
     }
     case 'hist-toggle': ui.histOpen = ui.histOpen === d.id ? null : d.id; render(); break;
     case 'hist-mode': ui.histMode = d.v; if (d.v === 'feed') ui.feed = null; if (d.v === 'comm') { ui.comm = null; ui.commErr = null; } render(); break;
+    case 'comm-img-rm': URL.revokeObjectURL(ui.commImg.url); ui.commImg = null; render(); break;
+    case 'img-view': modal(`<img src="${esc(el.src)}" style="width:100%;border-radius:10px;display:block" alt="사진"><button class="btn ghost block" data-m="close" style="margin-top:8px">닫기</button>`, m => { if (m === 'close') closeModal(); }); break;
     case 'comm-refresh': ui.comm = null; ui.commErr = null; render(); break;
     case 'comm-toggle': ui.commOpen = ui.commOpen === d.id ? null : d.id; render();
       if (ui.commOpen) view.querySelector(`.cmt-in[data-id="${d.id}"]`)?.focus({ preventScroll: true }); break;
     case 'comm-send': {
       const text = (document.getElementById('commIn')?.value || '').trim();
-      if (!text) { document.getElementById('commIn')?.focus(); return; }
-      el.disabled = true; el.textContent = '올리는 중…';
-      sendCommunity('community', { body: text.slice(0, 1000) }).then(() => { ui.commDraft = ''; ui.comm = null; render(); toast('글을 올렸어요'); },
+      if (!text && !ui.commImg) { document.getElementById('commIn')?.focus(); return; }
+      el.disabled = true; el.textContent = ui.commImg ? '사진 올리는 중…' : '올리는 중…';
+      (async () => {
+        const image_url = ui.commImg ? await uploadPhoto(ui.commImg.blob) : null;
+        await sendCommunity('community', { body: text.slice(0, 1000), ...(image_url ? { image_url } : {}) });
+      })().then(() => { ui.commDraft = ''; if (ui.commImg) URL.revokeObjectURL(ui.commImg.url); ui.commImg = null; ui.comm = null; render(); toast('글을 올렸어요'); },
         e => { notify(feedFailMsg(e)); el.disabled = false; el.textContent = '글 올리기'; });
       break;
     }
