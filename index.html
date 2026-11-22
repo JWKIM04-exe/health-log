@@ -100,6 +100,9 @@
   .stat div { background: var(--card2); border-radius: 10px; padding: 10px; text-align: center; }
   .stat b { display: block; font-size: 20px; }
   svg text { fill: var(--sub); font-size: 10px; }
+  .dlg-bg { position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 70; display: flex; align-items: center; justify-content: center; padding: 24px; }
+  .dlg { background: var(--card); border-radius: 16px; padding: 18px; width: 100%; max-width: 360px; }
+  .dlg p { margin: 0 0 14px; line-height: 1.5; white-space: pre-line; }
   .toast { position: fixed; top: calc(60px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); background: var(--gold); color: #3b2a00;
     padding: 10px 16px; border-radius: 999px; font-weight: 700; z-index: 60; }
 </style>
@@ -120,6 +123,7 @@
   <button data-tab="settings"><span class="ic">⚙️</span>설정</button>
 </nav>
 <div id="modalRoot"></div>
+<div id="dialogRoot"></div>
 
 <script>
 'use strict';
@@ -146,7 +150,7 @@ function freshDB() {
 let db;
 try { db = JSON.parse(localStorage.getItem(KEY)) || freshDB(); } catch { db = freshDB(); }
 db.active ||= {}; db.settings ||= {};
-const save = () => { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch (e) { alert('저장 실패: 저장 공간을 확인하세요'); } };
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch (e) { toast('⚠️ 저장 실패: 저장 공간을 확인하세요'); } };
 
 const me = () => db.users.find(u => u.id === db.currentUserId);
 const ex = id => db.exercises.find(e => e.id === id) || { name: '(삭제된 운동)', part: '기타' };
@@ -199,6 +203,30 @@ function timeAgo(t) {
   const m = Math.floor((Date.now() - t) / 60000);
   if (m < 1) return '방금'; if (m < 60) return `${m}분 전`; const h = Math.floor(m / 60);
   if (h < 24) return `${h}시간 전`; const d = Math.floor(h / 24); return d < 7 ? `${d}일 전` : fmtDate(t);
+}
+
+const SITE_URL = 'https://jwkim04-exe.github.io/health-log/';
+const feedFailMsg = e => `피드 연결에 실패했어요.\n${e.message}\n\n이 화면에서 안 되면 ${SITE_URL} 에서 열어주세요.`;
+async function finishWorkout(w) {
+  const doneCount = w.entries.reduce((n, e) => n + e.sets.filter(s => s.done).length, 0);
+  if (!doneCount) {
+    if (!await ask('완료 체크(✓)한 세트가 없어요.\n그래도 끝낼까요? 기록은 저장되지 않아요.', '끝내기', true)) return;
+    db.workouts = db.workouts.filter(x => x.id !== w.id);
+  } else {
+    if (!await ask(`운동을 마칠까요?\n완료 세트 ${doneCount}개 · 볼륨 ${fmtW(volume(w))}kg`, '운동 완료')) return;
+    w.finishedAt = Date.now();
+    w.entries = w.entries.map(e => ({ ...e, sets: e.sets.filter(s => s.done) })).filter(e => e.sets.length);
+  }
+  delete db.active[db.currentUserId]; stopTimer(); save(); tab = doneCount ? 'history' : 'workout';
+  ui.histMode = 'mine'; ui.histOpen = doneCount ? w.id : null; render();
+  if (doneCount) modal(`<h2>💪 수고하셨어요!</h2><p class="muted">${esc(w.title)} · 볼륨 ${fmtW(volume(w))}kg<br>친구 피드에 올릴까요?</p>
+    <button class="btn primary block" data-m="post">📢 피드에 올리기</button>
+    <button class="btn ghost block" data-m="close">나중에</button>`, async (m, el) => {
+      if (m === 'close') return closeModal();
+      el.disabled = true; el.textContent = '올리는 중…';
+      try { await postWorkout(w); closeModal(); render(); toast('피드에 올렸어요'); }
+      catch (e) { el.disabled = false; el.textContent = '📢 다시 시도'; notify(feedFailMsg(e)); }
+    });
 }
 
 /* 해당 운동의 지난 기록 (완료된 운동 중 가장 최근) */
@@ -349,12 +377,12 @@ function routineEditor(r) {
       if (m === 'rm') draft.items.splice(i, 1);
       if (m === 'add') { pickExercise(id => { draft.items.push(id); draw(); }); return; }
       if (m === 'save') {
-        if (!draft.name.trim()) { alert('루틴 이름을 입력하세요'); return; }
+        if (!draft.name.trim()) { notify('루틴 이름을 입력하세요'); return; }
         draft.name = draft.name.trim();
         if (isNew) db.routines.push(draft); else Object.assign(r, draft);
         save(); closeModal(); render(); return;
       }
-      if (m === 'delete') { if (confirm('이 루틴을 삭제할까요? (지난 기록은 남아요)')) { db.routines = db.routines.filter(x => x.id !== r.id); save(); closeModal(); render(); } return; }
+      if (m === 'delete') { ask('이 루틴을 삭제할까요?\n(지난 기록은 남아요)', '삭제', true).then(ok => { if (ok) { db.routines = db.routines.filter(x => x.id !== r.id); save(); closeModal(); render(); } }); return; }
       if (m === 'close') { closeModal(); return; }
       draw();
     });
@@ -431,7 +459,7 @@ function histSwitch() {
 function renderFeed() {
   if (!ui.feed && !ui.feedLoading && !ui.feedErr) loadFeed();
   let body;
-  if (ui.feedErr) body = `<div class="card empty">피드를 불러오지 못했어요.<br><span class="sub">${esc(ui.feedErr)}</span><br><br><button class="btn" data-act="feed-refresh">다시 시도</button></div>`;
+  if (ui.feedErr) body = `<div class="card empty">피드를 불러오지 못했어요.<br><span class="sub">${esc(ui.feedErr)}</span><br><br><span class="sub">이 화면에서 계속 안 되면 <a href="${SITE_URL}" target="_blank" rel="noopener" style="color:var(--accent)">GitHub 앱 링크</a>에서 열어주세요.</span><br><br><button class="btn" data-act="feed-refresh">다시 시도</button></div>`;
   else if (!ui.feed) body = '<div class="card empty">불러오는 중…</div>';
   else if (!ui.feed.length) body = '<div class="card empty">아직 올라온 운동이 없어요.<br>내 기록에서 첫 운동을 올려보세요!</div>';
   else body = ui.feed.map(p => {
@@ -557,9 +585,10 @@ function renderSettings() {
       <p class="sub">기록은 이 기기 브라우저에 저장돼요. 폰을 바꾸거나 브라우저 데이터를 지우기 전에 백업하세요.</p>
       <button class="btn block" data-act="export">📤 내 기록 백업 파일 받기</button>
       <div style="height:8px"></div>
-      <label class="btn block" style="display:block;text-align:center">📥 백업 파일 불러오기<input type="file" accept=".json" id="importFile" hidden></label></div>
+      <label class="btn block" style="display:block;text-align:center">📥 백업 파일 불러오기<input type="file" accept=".json,application/json" id="importFile" hidden></label>
+      <button class="btn block" data-act="import-paste" style="margin-top:8px">📋 복사한 백업 붙여넣기</button></div>
     <div class="card"><button class="btn danger block" data-act="user-delete">현재 사용자와 기록 전부 삭제</button></div>
-    <div class="sub" style="text-align:center">헬스 기록 v1.2</div>`;
+    <div class="sub" style="text-align:center">헬스 기록 v1.3</div>`;
   document.getElementById('importFile').addEventListener('change', importBackup);
 }
 function exportBackup() {
@@ -568,14 +597,29 @@ function exportBackup() {
     routines: myRoutines(), workouts: myWorkouts().filter(w => w.finishedAt),
     exercises: db.exercises.filter(e => e.custom), settings: settings(),
     myPosts: Object.fromEntries(myWorkouts().filter(w => w.postId && db.myPosts[w.postId]).map(w => [w.postId, db.myPosts[w.postId]])) };
-  const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob); a.download = `healthlog-${u.name}-${dkey(Date.now())}.json`; a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  const txt = JSON.stringify(data);
+  modal(`<h2>백업</h2><p class="sub">파일로 받거나, 아래 내용을 복사해서 메모장·카톡 나에게 보내기 등에 저장해두세요.</p>
+    <textarea id="bkTxt" rows="5" readonly>${esc(txt)}</textarea>
+    <button class="btn primary block" data-m="copy" style="margin-top:10px">복사</button>
+    <button class="btn block" data-m="file" style="margin-top:8px">파일로 받기</button>
+    <button class="btn ghost block" data-m="close">닫기</button>`, m => {
+      if (m === 'copy') copyText(txt, document.getElementById('bkTxt'));
+      if (m === 'file') { try { const a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob([txt], { type: 'application/json' })); a.download = `healthlog-${u.name}-${dkey(Date.now())}.json`; a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 1000); } catch { toast('이 화면에서는 파일 받기가 안 돼요. 복사를 써주세요'); } }
+      if (m === 'close') closeModal();
+    });
+}
+function copyText(txt, ta) {
+  const fallback = () => { try { ta?.select(); document.execCommand('copy'); toast('복사됐어요'); } catch { toast('길게 눌러 직접 복사해주세요'); } };
+  try { (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(() => toast('복사됐어요'), fallback); } catch { fallback(); }
 }
 function importBackup(ev) {
   const f = ev.target.files[0]; if (!f) return;
-  f.text().then(txt => {
+  f.text().then(importText).catch(e => notify('불러오기 실패: ' + e.message));
+}
+function importText(txt) {
+  return Promise.resolve(txt).then(txt => {
     const d = JSON.parse(txt);
     if (d.app !== 'healthlog') throw new Error('형식이 달라요');
     for (const e of d.exercises || []) if (!db.exercises.some(x => x.id === e.id)) db.exercises.push(e);
@@ -586,8 +630,8 @@ function importBackup(ev) {
     for (const w of d.workouts || []) if (!db.workouts.some(x => x.id === w.id)) { db.workouts.push({ ...w, userId: u.id }); added++; }
     if (d.settings) db.settings[u.id] = d.settings; Object.assign(db.myPosts, d.myPosts || {});
     db.currentUserId = u.id; save(); render();
-    alert(`${u.name} 님 기록 ${added}개를 불러왔어요`);
-  }).catch(e => alert('불러오기 실패: ' + e.message));
+    notify(`${u.name} 님 기록 ${added}개를 불러왔어요`);
+  }).catch(e => notify('불러오기 실패: ' + e.message));
 }
 
 /* =========================== 휴식 타이머 =========================== */
@@ -622,6 +666,24 @@ modalRoot.addEventListener('click', ev => {
   const el = ev.target.closest('[data-m]');
   if (el && modalHandler) modalHandler(el.dataset.m, el);
 });
+/* 브라우저 기본 alert/confirm/prompt 대신 쓰는 화면 안 대화상자 */
+const dialogRoot = document.getElementById('dialogRoot');
+function dialog(msg, { ok = '확인', cancel = null, input = null, danger = false } = {}) {
+  return new Promise(resolve => {
+    dialogRoot.innerHTML = `<div class="dlg-bg"><div class="dlg"><p>${esc(msg)}</p>
+      ${input !== null ? `<input type="text" id="dlgIn" value="${esc(input)}" maxlength="20" style="margin-bottom:12px">` : ''}
+      <div class="row">${cancel ? `<button class="btn" style="flex:1" data-r="0">${cancel}</button>` : ''}
+      <button class="btn ${danger ? '' : 'primary'}" style="flex:1;${danger ? 'background:var(--warn);color:#2b0606' : ''}" data-r="1">${ok}</button></div></div></div>`;
+    const inp = document.getElementById('dlgIn'); if (inp) { inp.focus(); inp.select(); }
+    dialogRoot.onclick = ev => { const b = ev.target.closest('[data-r]'); if (!b) return;
+      const v = inp ? inp.value : null; dialogRoot.innerHTML = ''; dialogRoot.onclick = null;
+      resolve(b.dataset.r === '1' ? (inp ? v : true) : (inp ? null : false)); };
+  });
+}
+const notify = msg => dialog(msg);
+const ask = (msg, ok = '확인', danger = false) => dialog(msg, { ok, cancel: '취소', danger });
+const askText = (msg, v) => dialog(msg, { ok: '저장', cancel: '취소', input: v });
+
 function toast(msg) {
   document.querySelectorAll('.toast').forEach(x => x.remove());
   const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg;
@@ -653,18 +715,18 @@ view.addEventListener('click', ev => {
   switch (a) {
     case 'user-create': {
       const name = document.getElementById('newUserName').value.trim();
-      if (!name) return alert('이름을 입력하세요');
+      if (!name) return notify('이름을 입력하세요');
       const u = { id: uid(), name }; db.users.push(u); db.currentUserId = u.id; save(); tab = 'routines'; render(); break;
     }
     case 'user-switch': db.currentUserId = d.id; save(); stopTimer(); render(); break;
     case 'user-add': db.currentUserId = null; render(); break;
-    case 'user-rename': { const n = prompt('새 이름', me().name); if (n && n.trim()) { me().name = n.trim().slice(0, 20); save(); render(); } break; }
+    case 'user-rename': askText('새 이름', me().name).then(n => { if (n && n.trim()) { me().name = n.trim().slice(0, 20); save(); render(); } }); break;
     case 'user-delete': {
-      if (!confirm(`${me().name} 님의 루틴과 기록을 모두 삭제할까요? 되돌릴 수 없어요.`)) return;
+      ask(`${me().name} 님의 루틴과 기록을 모두 삭제할까요?\n되돌릴 수 없어요.`, '전부 삭제', true).then(ok => { if (!ok) return;
       const id = db.currentUserId;
       db.users = db.users.filter(u => u.id !== id); db.routines = db.routines.filter(r => r.userId !== id);
       db.workouts = db.workouts.filter(x => x.userId !== id); delete db.active[id]; delete db.settings[id];
-      db.currentUserId = db.users[0]?.id || null; save(); render(); break;
+      db.currentUserId = db.users[0]?.id || null; save(); render(); }); break;
     }
     case 'start': startWorkout(d.id); break;
     case 'step': {
@@ -707,30 +769,10 @@ view.addEventListener('click', ev => {
       break;
     }
     case 'add-ex-to-workout': pickExercise(id => { w.entries.push(newEntry(id)); save(); render(); window.scrollTo(0, document.body.scrollHeight); }); break;
-    case 'finish': {
-      const doneCount = w.entries.reduce((n, e) => n + e.sets.filter(s => s.done).length, 0);
-      if (!doneCount) { if (!confirm('완료 체크한 세트가 없어요. 그래도 끝낼까요? (기록은 저장되지 않아요)')) return;
-        db.workouts = db.workouts.filter(x => x.id !== w.id); }
-      else {
-        if (!confirm(`운동을 마칠까요? 완료 세트 ${doneCount}개, 볼륨 ${fmtW(volume(w))}kg`)) return;
-        w.finishedAt = Date.now();
-        w.entries = w.entries.map(e => ({ ...e, sets: e.sets.filter(s => s.done) })).filter(e => e.sets.length);
-      }
-      delete db.active[db.currentUserId]; stopTimer(); save(); tab = doneCount ? 'history' : 'workout';
-      ui.histMode = 'mine'; ui.histOpen = doneCount ? w.id : null; render();
-      if (doneCount) modal(`<h2>💪 수고하셨어요!</h2><p class="muted">${esc(w.title)} · 볼륨 ${fmtW(volume(w))}kg<br>친구 피드에 올릴까요?</p>
-        <button class="btn primary block" data-m="post">📢 피드에 올리기</button>
-        <button class="btn ghost block" data-m="close">나중에</button>`, async (m, el) => {
-          if (m === 'close') return closeModal();
-          el.disabled = true; el.textContent = '올리는 중…';
-          try { await postWorkout(w); closeModal(); render(); toast('피드에 올렸어요'); }
-          catch (e) { el.disabled = false; el.textContent = '📢 다시 시도'; alert('올리기 실패: ' + e.message); }
-        });
-      break;
-    }
+    case 'finish': finishWorkout(w); break;
     case 'cancel-workout':
-      if (!confirm('진행 중인 운동을 삭제할까요?')) return;
-      db.workouts = db.workouts.filter(x => x.id !== w.id); delete db.active[db.currentUserId]; stopTimer(); save(); render(); break;
+      ask('진행 중인 운동을 삭제할까요?', '삭제', true).then(ok => { if (!ok) return;
+        db.workouts = db.workouts.filter(x => x.id !== w.id); delete db.active[db.currentUserId]; stopTimer(); save(); render(); }); break;
     case 'routine-new': routineEditor(null); break;
     case 'routine-edit': routineEditor(db.routines.find(r => r.id === d.id)); break;
     case 'routine-share': {
@@ -740,7 +782,7 @@ view.addEventListener('click', ev => {
         <button class="btn primary block" data-m="copy" style="margin-top:10px">코드 복사</button>
         <button class="btn ghost block" data-m="close">닫기</button>`, m => {
           if (m === 'copy') { const t = document.getElementById('shareCode'); t.select();
-            (navigator.clipboard?.writeText(code) || Promise.reject()).then(() => toast('복사됐어요'), () => { document.execCommand('copy'); toast('복사됐어요'); }); }
+            copyText(code, t); }
           if (m === 'close') closeModal();
         });
       break;
@@ -750,7 +792,7 @@ view.addEventListener('click', ev => {
         <button class="btn primary block" data-m="ok" style="margin-top:10px">가져오기</button>
         <button class="btn ghost block" data-m="close">닫기</button>`, m => {
           if (m === 'ok') { try { const r = decodeRoutine(document.getElementById('impCode').value); db.routines.push(r); save(); closeModal(); render(); toast(`"${r.name}" 추가됨`); }
-            catch { alert('코드가 올바르지 않아요'); } }
+            catch { notify('코드가 올바르지 않아요'); } }
           if (m === 'close') closeModal();
         });
       break;
@@ -764,19 +806,26 @@ view.addEventListener('click', ev => {
     case 'feed-toggle': ui.feedOpen = ui.feedOpen === d.id ? null : d.id; render(); break;
     case 'post': {
       const pw = db.workouts.find(x => x.id === d.id); el.disabled = true; el.textContent = '올리는 중…';
-      postWorkout(pw).then(() => { render(); toast('피드에 올렸어요'); }, e => { alert('올리기 실패: ' + e.message); render(); });
+      postWorkout(pw).then(() => { render(); toast('피드에 올렸어요'); }, e => { notify(feedFailMsg(e)); render(); });
       break;
     }
     case 'feed-del':
-      if (!confirm('피드에서 내릴까요? (내 기록은 그대로 남아요)')) return;
-      el.disabled = true;
-      unpost(d.id).then(() => { render(); toast('피드에서 내렸어요'); }, e => { alert('실패: ' + e.message); render(); });
+      ask('피드에서 내릴까요?\n(내 기록은 그대로 남아요)', '내리기').then(ok => { if (!ok) return; el.disabled = true;
+        unpost(d.id).then(() => { render(); toast('피드에서 내렸어요'); }, e => { notify(feedFailMsg(e)); render(); }); });
       break;
     case 'hist-del':
-      if (confirm('이 운동 기록을 삭제할까요?')) { db.workouts = db.workouts.filter(x => x.id !== d.id); save(); render(); } break;
+      ask('이 운동 기록을 삭제할까요?', '삭제', true).then(ok => { if (ok) { db.workouts = db.workouts.filter(x => x.id !== d.id); save(); render(); } }); break;
     case 'set-rest': settings().rest = +d.v; save(); render(); break;
     case 'set-wstep': settings().wStep = +d.v; save(); render(); break;
     case 'export': exportBackup(); break;
+    case 'import-paste':
+      modal(`<h2>백업 붙여넣기</h2><textarea id="bkIn" rows="5" placeholder="복사해둔 백업 내용을 붙여넣으세요"></textarea>
+        <button class="btn primary block" data-m="ok" style="margin-top:10px">불러오기</button>
+        <button class="btn ghost block" data-m="close">닫기</button>`, m => {
+          if (m === 'ok') { const t = document.getElementById('bkIn').value; closeModal(); importText(t).catch(e => notify('불러오기 실패: ' + e.message)); }
+          if (m === 'close') closeModal();
+        });
+      break;
   }
 });
 /* 직접 입력 & 메모 */
