@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#111418">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>헬스 기록</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
+<style>
+  :root {
+    --bg: #111418; --card: #1b1f25; --card2: #242a32; --line: #2e353f;
+    --text: #eef1f5; --sub: #8b95a3; --accent: #4ade80; --accent-d: #166534;
+    --warn: #f87171; --gold: #fbbf24;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Pretendard", "Noto Sans KR", sans-serif;
+    font-size: 16px; }
+  body { padding-bottom: calc(140px + env(safe-area-inset-bottom)); }
+  header { position: sticky; top: 0; z-index: 10; background: var(--bg);
+    padding: calc(10px + env(safe-area-inset-top)) 16px 10px; display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 18px; margin: 0; }
+  .user-btn { background: var(--card2); color: var(--text); border: 0; border-radius: 999px; padding: 6px 12px; font-size: 14px; }
+  main { padding: 16px; max-width: 640px; margin: 0 auto; }
+  h2 { font-size: 20px; margin: 4px 0 14px; }
+  h3 { font-size: 16px; margin: 0; }
+  .card { background: var(--card); border-radius: 14px; padding: 14px; margin-bottom: 12px; }
+  .row { display: flex; align-items: center; gap: 8px; }
+  .between { justify-content: space-between; }
+  .sub { color: var(--sub); font-size: 13px; }
+  .muted { color: var(--sub); }
+  button { font-family: inherit; cursor: pointer; }
+  .btn { border: 0; border-radius: 12px; padding: 12px 16px; font-size: 15px; font-weight: 600;
+    background: var(--card2); color: var(--text); }
+  .btn.primary { background: var(--accent); color: #062b14; }
+  .btn.danger { background: transparent; color: var(--warn); }
+  .btn.block { width: 100%; }
+  .btn.sm { padding: 7px 11px; font-size: 13px; border-radius: 9px; }
+  .btn.ghost { background: transparent; color: var(--sub); }
+  input[type=text], input[type=number], select, textarea {
+    width: 100%; background: var(--card2); color: var(--text); border: 1px solid var(--line);
+    border-radius: 10px; padding: 11px 12px; font-size: 16px; font-family: inherit; }
+  textarea { resize: vertical; min-height: 40px; }
+  input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  input[type=number] { -moz-appearance: textfield; appearance: textfield; }
+  nav { position: fixed; bottom: 0; left: 0; right: 0; background: var(--card); border-top: 1px solid var(--line);
+    display: flex; padding-bottom: env(safe-area-inset-bottom); z-index: 20; }
+  nav button { flex: 1; background: none; border: 0; color: var(--sub); padding: 10px 0 8px; font-size: 12px; }
+  nav button .ic { font-size: 20px; display: block; margin-bottom: 2px; }
+  nav button.on { color: var(--accent); }
+  .empty { text-align: center; color: var(--sub); padding: 30px 10px; }
+  .chip { display: inline-block; background: var(--card2); color: var(--sub); border-radius: 999px; padding: 3px 9px; font-size: 12px; }
+  .pr { background: var(--gold); color: #3b2a00; font-weight: 700; }
+
+  /* set rows */
+  .set { display: grid; grid-template-columns: 26px 1fr 1fr 44px; gap: 8px; align-items: center; padding: 6px 0; }
+  .set.head { color: var(--sub); font-size: 12px; padding: 0 0 2px; }
+  .set .n { color: var(--sub); text-align: center; font-weight: 600; }
+  .stepper { display: flex; align-items: center; background: var(--card2); border-radius: 10px; overflow: hidden; height: 44px; }
+  .stepper button { width: 36px; height: 100%; border: 0; background: none; color: var(--sub); font-size: 20px; }
+  .stepper input { flex: 1; min-width: 0; text-align: center; background: none; border: 0; padding: 0; font-size: 17px; font-weight: 600; height: 100%; }
+  .chk { width: 44px; height: 44px; border-radius: 10px; border: 2px solid var(--line); background: none; color: transparent; font-size: 20px; }
+  .set.done .chk { background: var(--accent); border-color: var(--accent); color: #062b14; }
+  .set.done .stepper { background: var(--accent-d); }
+  .set.done .stepper input, .set.done .stepper button { color: #d1fae5; }
+  .prev { font-size: 12px; color: var(--sub); margin: 2px 0 6px; }
+
+  /* timer */
+  #timer { position: fixed; left: 12px; right: 12px; bottom: calc(76px + env(safe-area-inset-bottom)); z-index: 30;
+    background: var(--accent); color: #062b14; border-radius: 14px; padding: 10px 14px; display: none;
+    align-items: center; justify-content: space-between; font-weight: 700; box-shadow: 0 6px 20px rgba(0,0,0,.4); }
+  #timer.show { display: flex; }
+  #timer .t { font-size: 22px; font-variant-numeric: tabular-nums; }
+  #timer button { background: rgba(0,0,0,.15); color: #062b14; border: 0; border-radius: 8px; padding: 6px 10px; font-weight: 700; margin-left: 6px; }
+
+  /* modal */
+  .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 50; display: flex; align-items: flex-end; justify-content: center; }
+  .modal { background: var(--card); width: 100%; max-width: 640px; border-radius: 18px 18px 0 0; padding: 18px 16px calc(18px + env(safe-area-inset-bottom));
+    max-height: 85vh; overflow-y: auto; }
+  .list-item { display: flex; align-items: center; justify-content: space-between; padding: 12px 4px; border-bottom: 1px solid var(--line); }
+  .list-item:last-child { border-bottom: 0; }
+  .pick { width: 100%; text-align: left; background: none; border: 0; color: var(--text); padding: 12px 4px; border-bottom: 1px solid var(--line); font-size: 15px; display: flex; justify-content: space-between; }
+  .pick.sel { color: var(--accent); }
+  .tabs { display: flex; gap: 6px; overflow-x: auto; margin-bottom: 8px; padding-bottom: 4px; }
+  .tabs button { flex-shrink: 0; }
+  .tabs .btn.on { background: var(--accent); color: #062b14; }
+
+  /* calendar */
+  .cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; text-align: center; font-size: 13px; }
+  .cal .d { padding: 8px 0; border-radius: 8px; color: var(--sub); }
+  .cal .d.has { background: var(--accent); color: #062b14; font-weight: 700; }
+  .cal .d.today { outline: 1px solid var(--sub); }
+  .cal .w { color: var(--sub); font-size: 11px; padding-bottom: 4px; }
+  .stat { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .stat div { background: var(--card2); border-radius: 10px; padding: 10px; text-align: center; }
+  .stat b { display: block; font-size: 20px; }
+  svg text { fill: var(--sub); font-size: 10px; }
+  .toast { position: fixed; top: calc(60px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); background: var(--gold); color: #3b2a00;
+    padding: 10px 16px; border-radius: 999px; font-weight: 700; z-index: 60; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">헬스 기록</h1>
+  <button class="user-btn" id="userBtn">👤</button>
+</header>
+<main id="view"></main>
+<div id="timer"><div>휴식 <span class="t" id="timerT">0:00</span></div>
+  <div><button data-act="timer-add" data-v="-15">−15</button><button data-act="timer-add" data-v="15">+15</button><button data-act="timer-stop">닫기</button></div></div>
+<nav id="nav">
+  <button data-tab="workout"><span class="ic">🏋️</span>운동</button>
+  <button data-tab="routines"><span class="ic">📋</span>루틴</button>
+  <button data-tab="history"><span class="ic">📅</span>기록</button>
+  <button data-tab="stats"><span class="ic">📈</span>성장</button>
+  <button data-tab="settings"><span class="ic">⚙️</span>설정</button>
+</nav>
+<div id="modalRoot"></div>
+
+<script>
+'use strict';
+/* =========================== 저장소 =========================== */
+const KEY = 'healthlog_v1';
+const PRESET = [
+  ['벤치프레스','가슴'],['인클라인 벤치프레스','가슴'],['덤벨 프레스','가슴'],['딥스','가슴'],['펙덱 플라이','가슴'],['케이블 크로스오버','가슴'],
+  ['데드리프트','등'],['풀업','등'],['랫풀다운','등'],['바벨 로우','등'],['시티드 로우','등'],['원암 덤벨 로우','등'],
+  ['스쿼트','하체'],['레그프레스','하체'],['런지','하체'],['레그 익스텐션','하체'],['레그 컬','하체'],['루마니안 데드리프트','하체'],['카프 레이즈','하체'],
+  ['오버헤드 프레스','어깨'],['덤벨 숄더프레스','어깨'],['사이드 레터럴 레이즈','어깨'],['리어 델트 플라이','어깨'],['페이스풀','어깨'],
+  ['바벨 컬','팔'],['덤벨 컬','팔'],['해머 컬','팔'],['케이블 푸시다운','팔'],['라잉 트라이셉스 익스텐션','팔'],
+  ['크런치','복근'],['레그 레이즈','복근'],['플랭크','복근'],
+];
+const PARTS = ['가슴','등','하체','어깨','팔','복근','기타'];
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+
+function freshDB() {
+  return {
+    users: [], currentUserId: null,
+    exercises: PRESET.map(([name, part], i) => ({ id: 'p' + i, name, part, custom: false })),
+    routines: [], workouts: [], active: {}, settings: {},
+  };
+}
+let db;
+try { db = JSON.parse(localStorage.getItem(KEY)) || freshDB(); } catch { db = freshDB(); }
+db.active ||= {}; db.settings ||= {};
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch (e) { alert('저장 실패: 저장 공간을 확인하세요'); } };
+
+const me = () => db.users.find(u => u.id === db.currentUserId);
+const ex = id => db.exercises.find(e => e.id === id) || { name: '(삭제된 운동)', part: '기타' };
+const myRoutines = () => db.routines.filter(r => r.userId === db.currentUserId);
+const myWorkouts = () => db.workouts.filter(w => w.userId === db.currentUserId).sort((a, b) => b.startedAt - a.startedAt);
+const settings = () => (db.settings[db.currentUserId] ||= { rest: 90, wStep: 2.5 });
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+const num = v => { const n = parseFloat(v); return isFinite(n) ? n : 0; };
+const fmtW = n => (Math.round(n * 100) / 100).toString();
+const dkey = t => { const d = new Date(t); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
+const fmtDate = t => { const d = new Date(t); return `${d.getMonth()+1}월 ${d.getDate()}일 (${'일월화수목금토'[d.getDay()]})`; };
+const volume = w => w.entries.reduce((s, e) => s + e.sets.filter(x => x.done).reduce((a, x) => a + x.w * x.r, 0), 0);
+
+/* 해당 운동의 지난 기록 (완료된 운동 중 가장 최근) */
+function lastSets(exId) {
+  for (const w of myWorkouts()) {
+    if (!w.finishedAt) continue;
+    const e = w.entries.find(e => e.exerciseId === exId);
+    if (e && e.sets.some(s => s.done)) return e.sets.filter(s => s.done);
+  }
+  return null;
+}
+function bestWeight(exId, excludeId) {
+  let best = 0;
+  for (const w of myWorkouts()) {
+    if (w.id === excludeId) continue;
+    for (const e of w.entries) if (e.exerciseId === exId) for (const s of e.sets) if (s.done && s.w > best) best = s.w;
+  }
+  return best;
+}
+
+/* =========================== 라우팅 =========================== */
+let tab = 'workout';
+let ui = { statEx: null, histOpen: null, calMonth: null };
+const view = document.getElementById('view');
+
+function render() {
+  const u = me();
+  document.getElementById('userBtn').textContent = '👤 ' + (u ? u.name : '사용자');
+  document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
+  if (!u) { view.innerHTML = userSetupHTML(); return; }
+  ({ workout: renderWorkout, routines: renderRoutines, history: renderHistory, stats: renderStats, settings: renderSettings })[tab]();
+}
+
+function userSetupHTML() {
+  return `<div class="card" style="margin-top:30px">
+    <h2>👋 환영합니다</h2>
+    <p class="muted">이름을 입력하면 바로 시작할 수 있어요. 한 기기에서 여러 명이 써도 각자 따로 기록돼요.</p>
+    <input type="text" id="newUserName" placeholder="이름 (예: 민수)" maxlength="20">
+    <div style="height:10px"></div>
+    <button class="btn primary block" data-act="user-create">시작하기</button>
+    ${db.users.length ? `<div style="height:16px"></div><div class="sub">기존 사용자</div>` +
+      db.users.map(x => `<button class="pick" data-act="user-switch" data-id="${x.id}">${esc(x.name)}<span>›</span></button>`).join('') : ''}
+  </div>`;
+}
+
+/* =========================== 운동 탭 =========================== */
+function renderWorkout() {
+  const aid = db.active[db.currentUserId];
+  const w = aid && db.workouts.find(x => x.id === aid);
+  if (!w) {
+    const rs = myRoutines();
+    const last = myWorkouts().find(x => x.finishedAt);
+    view.innerHTML = `<h2>오늘 운동</h2>
+      ${last ? `<div class="sub" style="margin:-8px 0 14px">마지막 운동: ${fmtDate(last.startedAt)} · ${esc(last.title)}</div>` : ''}
+      ${rs.length ? rs.map(r => `<div class="card row between">
+          <div><h3>${esc(r.name)}</h3><div class="sub">${r.items.map(i => esc(ex(i).name)).join(', ') || '운동 없음'}</div></div>
+          <button class="btn primary sm" data-act="start" data-id="${r.id}">시작</button></div>`).join('')
+        : `<div class="card empty">아직 루틴이 없어요.<br><br><button class="btn primary" data-tab-go="routines">루틴 만들기</button></div>`}
+      <button class="btn block" data-act="start" data-id="">＋ 루틴 없이 빈 운동 시작</button>`;
+    return;
+  }
+  const elapsed = Math.floor((Date.now() - w.startedAt) / 60000);
+  view.innerHTML = `<div class="row between" style="margin-bottom:12px">
+      <div><h2 style="margin:0">${esc(w.title)}</h2><div class="sub">${elapsed}분 경과 · 볼륨 ${fmtW(volume(w))}kg</div></div>
+      <button class="btn primary sm" data-act="finish">운동 완료</button></div>
+    ${w.entries.map((e, ei) => entryHTML(w, e, ei)).join('')}
+    <button class="btn block" data-act="add-ex-to-workout">＋ 운동 추가</button>
+    <div style="height:8px"></div>
+    <button class="btn danger block" data-act="cancel-workout">운동 취소 (기록 삭제)</button>`;
+}
+
+function entryHTML(w, e, ei) {
+  const prev = lastSetsExcluding(e.exerciseId, w.id);
+  const prevTxt = prev ? '지난번: ' + prev.map(s => `${fmtW(s.w)}×${s.r}`).join(', ') : '첫 기록이에요';
+  return `<div class="card">
+    <div class="row between"><h3>${esc(ex(e.exerciseId).name)}</h3>
+      <button class="btn ghost sm" data-act="entry-menu" data-ei="${ei}">⋯</button></div>
+    <div class="prev">${prevTxt}</div>
+    <div class="set head"><div>세트</div><div style="text-align:center">kg</div><div style="text-align:center">회</div><div></div></div>
+    ${e.sets.map((s, si) => `<div class="set ${s.done ? 'done' : ''}">
+      <div class="n">${si + 1}</div>
+      <div class="stepper"><button data-act="step" data-ei="${ei}" data-si="${si}" data-f="w" data-d="-1">−</button>
+        <input type="number" inputmode="decimal" value="${fmtW(s.w)}" data-act="edit" data-ei="${ei}" data-si="${si}" data-f="w">
+        <button data-act="step" data-ei="${ei}" data-si="${si}" data-f="w" data-d="1">+</button></div>
+      <div class="stepper"><button data-act="step" data-ei="${ei}" data-si="${si}" data-f="r" data-d="-1">−</button>
+        <input type="number" inputmode="numeric" value="${s.r}" data-act="edit" data-ei="${ei}" data-si="${si}" data-f="r">
+        <button data-act="step" data-ei="${ei}" data-si="${si}" data-f="r" data-d="1">+</button></div>
+      <button class="chk" data-act="done" data-ei="${ei}" data-si="${si}">✓</button></div>`).join('')}
+    <div class="row" style="margin-top:8px">
+      <button class="btn sm" style="flex:1" data-act="add-set" data-ei="${ei}">＋ 세트 (위 세트 복사)</button>
+      ${e.sets.length ? `<button class="btn sm ghost" data-act="del-set" data-ei="${ei}">− 마지막 세트</button>` : ''}
+    </div>
+    <textarea placeholder="메모 (예: 어깨 살짝 불편)" data-act="memo" data-ei="${ei}" style="margin-top:8px" rows="1">${esc(e.memo)}</textarea>
+  </div>`;
+}
+function lastSetsExcluding(exId, wid) {
+  for (const w of myWorkouts()) {
+    if (w.id === wid || !w.finishedAt) continue;
+    const e = w.entries.find(e => e.exerciseId === exId);
+    if (e && e.sets.some(s => s.done)) return e.sets.filter(s => s.done);
+  }
+  return null;
+}
+function newEntry(exId) {
+  const prev = lastSets(exId);
+  const sets = prev ? prev.map(s => ({ w: s.w, r: s.r, done: false })) : [{ w: 0, r: 10, done: false }, { w: 0, r: 10, done: false }, { w: 0, r: 10, done: false }];
+  return { exerciseId: exId, sets, memo: '' };
+}
+function startWorkout(routineId) {
+  const r = db.routines.find(x => x.id === routineId);
+  const w = { id: uid(), userId: db.currentUserId, routineId: r ? r.id : null, title: r ? r.name : '자유 운동',
+    startedAt: Date.now(), finishedAt: null, entries: r ? r.items.map(newEntry) : [] };
+  db.workouts.push(w); db.active[db.currentUserId] = w.id; save(); render();
+  if (!r) pickExercise(id => { w.entries.push(newEntry(id)); save(); render(); });
+}
+const activeW = () => db.workouts.find(x => x.id === db.active[db.currentUserId]);
+
+/* =========================== 루틴 탭 =========================== */
+function renderRoutines() {
+  const rs = myRoutines();
+  view.innerHTML = `<div class="row between"><h2>내 루틴</h2><button class="btn primary sm" data-act="routine-new">＋ 새 루틴</button></div>
+    ${rs.length ? rs.map(r => `<div class="card">
+      <div class="row between"><h3>${esc(r.name)}</h3>
+        <div><button class="btn sm" data-act="routine-edit" data-id="${r.id}">편집</button>
+        <button class="btn sm" data-act="routine-share" data-id="${r.id}">공유</button></div></div>
+      <div class="sub" style="margin-top:6px">${r.items.map((i, n) => `${n+1}. ${esc(ex(i).name)}`).join('<br>') || '운동 없음'}</div></div>`).join('')
+      : `<div class="card empty">루틴을 만들어두면 버튼 한 번으로 운동을 시작할 수 있어요.<br>예: "월 - 가슴/삼두"</div>`}
+    <button class="btn block" data-act="routine-import">📥 공유 코드로 루틴 가져오기</button>`;
+}
+function routineEditor(r) {
+  const isNew = !r;
+  const draft = r ? { ...r, items: [...r.items] } : { id: uid(), userId: db.currentUserId, name: '', items: [] };
+  const draw = () => modal(`<h2>${isNew ? '새 루틴' : '루틴 편집'}</h2>
+    <input type="text" id="rName" placeholder="루틴 이름 (예: 월 - 가슴/삼두)" value="${esc(draft.name)}" maxlength="30">
+    <div style="height:10px"></div>
+    ${draft.items.map((id, i) => `<div class="list-item"><span>${i+1}. ${esc(ex(id).name)}</span><span>
+      <button class="btn ghost sm" data-m="up" data-i="${i}">▲</button><button class="btn ghost sm" data-m="down" data-i="${i}">▼</button>
+      <button class="btn ghost sm" data-m="rm" data-i="${i}" style="color:var(--warn)">✕</button></span></div>`).join('')}
+    <button class="btn block" data-m="add" style="margin-top:8px">＋ 운동 추가</button>
+    <div style="height:14px"></div>
+    <button class="btn primary block" data-m="save">저장</button>
+    ${isNew ? '' : '<button class="btn danger block" data-m="delete">루틴 삭제</button>'}
+    <button class="btn ghost block" data-m="close">닫기</button>`, (m, el) => {
+      draft.name = document.getElementById('rName')?.value ?? draft.name;
+      const i = +el.dataset.i;
+      if (m === 'up' && i > 0) [draft.items[i-1], draft.items[i]] = [draft.items[i], draft.items[i-1]];
+      if (m === 'down' && i < draft.items.length - 1) [draft.items[i+1], draft.items[i]] = [draft.items[i], draft.items[i+1]];
+      if (m === 'rm') draft.items.splice(i, 1);
+      if (m === 'add') { pickExercise(id => { draft.items.push(id); draw(); }, true); return; }
+      if (m === 'save') {
+        if (!draft.name.trim()) { alert('루틴 이름을 입력하세요'); return; }
+        draft.name = draft.name.trim();
+        if (isNew) db.routines.push(draft); else Object.assign(r, draft);
+        save(); closeModal(); render(); return;
+      }
+      if (m === 'delete') { if (confirm('이 루틴을 삭제할까요? (지난 기록은 남아요)')) { db.routines = db.routines.filter(x => x.id !== r.id); save(); closeModal(); render(); } return; }
+      if (m === 'close') { closeModal(); return; }
+      draw();
+    });
+  draw();
+}
+
+/* 운동 선택 모달 */
+function pickExercise(onPick, multi) {
+  let part = '전체', q = '';
+  const draw = () => {
+    const list = db.exercises.filter(e => (part === '전체' || e.part === part) && e.name.includes(q));
+    modal(`<h2>운동 선택</h2>
+      <input type="text" id="exQ" placeholder="검색" value="${esc(q)}">
+      <div class="tabs" style="margin-top:8px">${['전체', ...PARTS].map(p => `<button class="btn sm ${p === part ? 'on' : ''}" data-m="part" data-p="${p}">${p}</button>`).join('')}</div>
+      ${list.map(e => `<button class="pick" data-m="pick" data-id="${e.id}">${esc(e.name)}<span class="sub">${e.part}</span></button>`).join('') || '<div class="empty">없어요. 아래에서 직접 추가하세요.</div>'}
+      <div style="height:12px"></div>
+      <div class="row"><input type="text" id="exNew" placeholder="새 운동 이름" maxlength="30">
+        <select id="exNewPart" style="width:90px">${PARTS.map(p => `<option ${p === (part === '전체' ? '기타' : part) ? 'selected' : ''}>${p}</option>`).join('')}</select></div>
+      <button class="btn block" data-m="new" style="margin-top:8px">＋ 새 운동 만들고 추가</button>
+      <button class="btn ghost block" data-m="close">닫기</button>`, (m, el) => {
+        if (m === 'part') { part = el.dataset.p; q = document.getElementById('exQ').value; draw(); }
+        if (m === 'pick') { closeModal(); onPick(el.dataset.id); }
+        if (m === 'new') {
+          const name = document.getElementById('exNew').value.trim();
+          if (!name) return;
+          const found = db.exercises.find(e => e.name === name);
+          const e = found || { id: uid(), name, part: document.getElementById('exNewPart').value, custom: true };
+          if (!found) db.exercises.push(e);
+          save(); closeModal(); onPick(e.id);
+        }
+        if (m === 'close') closeModal();
+      });
+    const qi = document.getElementById('exQ');
+    qi.addEventListener('input', () => { q = qi.value; const pos = qi.selectionStart; draw(); const n = document.getElementById('exQ'); n.focus(); n.setSelectionRange(pos, pos); });
+  };
+  draw();
+}
+
+/* 루틴 공유 코드: 운동 이름으로 저장해서 다른 기기에서도 매칭 */
+function encodeRoutine(r) {
+  const data = { n: r.name, i: r.items.map(id => [ex(id).name, ex(id).part]) };
+  return 'HL1:' + btoa(unescape(encodeURIComponent(JSON.stringify(data))));
+}
+function decodeRoutine(code) {
+  const raw = code.trim().replace(/^HL1:/, '');
+  const data = JSON.parse(decodeURIComponent(escape(atob(raw))));
+  const items = data.i.map(([name, part]) => {
+    let e = db.exercises.find(x => x.name === name);
+    if (!e) { e = { id: uid(), name, part: PARTS.includes(part) ? part : '기타', custom: true }; db.exercises.push(e); }
+    return e.id;
+  });
+  return { id: uid(), userId: db.currentUserId, name: String(data.n).slice(0, 30), items };
+}
+
+/* =========================== 기록 탭 =========================== */
+function renderHistory() {
+  const ws = myWorkouts().filter(w => w.finishedAt);
+  const now = new Date();
+  const cm = ui.calMonth || { y: now.getFullYear(), m: now.getMonth() };
+  ui.calMonth = cm;
+  const days = new Set(ws.map(w => dkey(w.startedAt)));
+  const first = new Date(cm.y, cm.m, 1).getDay(), dim = new Date(cm.y, cm.m + 1, 0).getDate();
+  const monthCount = ws.filter(w => { const d = new Date(w.startedAt); return d.getFullYear() === cm.y && d.getMonth() === cm.m; }).length;
+  let cal = '일월화수목금토'.split('').map(c => `<div class="w">${c}</div>`).join('');
+  for (let i = 0; i < first; i++) cal += '<div></div>';
+  for (let d = 1; d <= dim; d++) {
+    const k = `${cm.y}-${String(cm.m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    cal += `<div class="d ${days.has(k) ? 'has' : ''} ${k === dkey(Date.now()) ? 'today' : ''}">${d}</div>`;
+  }
+  view.innerHTML = `<h2>운동 기록</h2>
+    <div class="card">
+      <div class="row between" style="margin-bottom:10px">
+        <button class="btn ghost sm" data-act="cal" data-d="-1">‹</button>
+        <b>${cm.y}년 ${cm.m + 1}월 · ${monthCount}회</b>
+        <button class="btn ghost sm" data-act="cal" data-d="1">›</button></div>
+      <div class="cal">${cal}</div></div>
+    ${ws.length ? ws.map(w => {
+      const open = ui.histOpen === w.id;
+      const mins = Math.round((w.finishedAt - w.startedAt) / 60000);
+      return `<div class="card">
+        <div class="row between" data-act="hist-toggle" data-id="${w.id}" style="cursor:pointer">
+          <div><h3>${esc(w.title)}</h3><div class="sub">${fmtDate(w.startedAt)} · ${mins}분 · ${fmtW(volume(w))}kg</div></div>
+          <span class="muted">${open ? '▲' : '▼'}</span></div>
+        ${open ? `<div style="margin-top:10px">${w.entries.map(e => {
+            const done = e.sets.filter(s => s.done);
+            return `<div style="padding:6px 0;border-top:1px solid var(--line)"><b>${esc(ex(e.exerciseId).name)}</b>
+              <div class="sub">${done.map(s => `${fmtW(s.w)}kg×${s.r}`).join(' / ') || '완료한 세트 없음'}</div>
+              ${e.memo ? `<div class="sub">📝 ${esc(e.memo)}</div>` : ''}</div>`;
+          }).join('')}
+          <button class="btn danger sm" data-act="hist-del" data-id="${w.id}">이 기록 삭제</button></div>` : ''}
+      </div>`;
+    }).join('') : '<div class="card empty">완료한 운동이 여기에 쌓여요.</div>'}`;
+}
+
+/* =========================== 성장 탭 =========================== */
+function renderStats() {
+  const ws = myWorkouts().filter(w => w.finishedAt);
+  const weekAgo = Date.now() - 7 * 864e5;
+  const week = ws.filter(w => w.startedAt >= weekAgo).length;
+  const totalVol = ws.reduce((s, w) => s + volume(w), 0);
+  const used = [...new Set(ws.flatMap(w => w.entries.filter(e => e.sets.some(s => s.done)).map(e => e.exerciseId)))];
+  if (!ui.statEx || !used.includes(ui.statEx)) ui.statEx = used[0] || null;
+  let chart = '<div class="empty">운동을 완료하면 그래프가 나와요.</div>', prTable = '';
+  if (ui.statEx) {
+    const pts = ws.slice().reverse().map(w => {
+      const e = w.entries.find(x => x.exerciseId === ui.statEx);
+      const d = e ? e.sets.filter(s => s.done) : [];
+      return d.length ? { t: w.startedAt, w: Math.max(...d.map(s => s.w)) } : null;
+    }).filter(Boolean);
+    chart = lineChart(pts);
+  }
+  prTable = used.map(id => ({ id, best: bestWeight(id) })).sort((a, b) => b.best - a.best)
+    .map(x => `<div class="list-item"><span>${esc(ex(x.id).name)}</span><b>${fmtW(x.best)}kg</b></div>`).join('');
+  view.innerHTML = `<h2>성장</h2>
+    <div class="stat card"><div><b>${week}</b><span class="sub">최근 7일</span></div>
+      <div><b>${ws.length}</b><span class="sub">총 운동</span></div>
+      <div><b>${totalVol >= 1000 ? fmtW(Math.round(totalVol / 100) / 10) + 't' : fmtW(totalVol) + 'kg'}</b><span class="sub">총 볼륨</span></div></div>
+    <div class="card"><div class="row between" style="margin-bottom:8px"><h3>최고 무게 추이</h3></div>
+      ${used.length ? `<select data-act="stat-ex">${used.map(id => `<option value="${id}" ${id === ui.statEx ? 'selected' : ''}>${esc(ex(id).name)}</option>`).join('')}</select>` : ''}
+      <div style="margin-top:10px">${chart}</div></div>
+    <div class="card"><h3 style="margin-bottom:6px">🏆 개인 최고 기록</h3>${prTable || '<div class="sub">아직 없어요</div>'}</div>`;
+}
+function lineChart(pts) {
+  if (pts.length < 2) return `<div class="sub">기록이 2번 이상 쌓이면 그래프가 그려져요.${pts.length ? ` (현재 ${fmtW(pts[0].w)}kg)` : ''}</div>`;
+  const W = 320, H = 160, P = 28;
+  const ys = pts.map(p => p.w), min = Math.min(...ys), max = Math.max(...ys), span = max - min || 1;
+  const x = i => P + (i * (W - P - 10)) / (pts.length - 1);
+  const y = v => H - P + 6 - ((v - min) / span) * (H - P - 14);
+  const path = pts.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p.w).toFixed(1)}`).join(' ');
+  const d0 = new Date(pts[0].t), d1 = new Date(pts.at(-1).t);
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%">
+    <line x1="${P}" y1="${y(max)}" x2="${W-10}" y2="${y(max)}" stroke="var(--line)" stroke-dasharray="3 3"/>
+    <line x1="${P}" y1="${y(min)}" x2="${W-10}" y2="${y(min)}" stroke="var(--line)" stroke-dasharray="3 3"/>
+    <text x="2" y="${y(max) + 3}">${fmtW(max)}</text><text x="2" y="${y(min) + 3}">${fmtW(min)}</text>
+    <path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round"/>
+    ${pts.map((p, i) => `<circle cx="${x(i)}" cy="${y(p.w)}" r="3.5" fill="var(--accent)"/>`).join('')}
+    <text x="${P}" y="${H - 4}">${d0.getMonth()+1}/${d0.getDate()}</text>
+    <text x="${W - 10}" y="${H - 4}" text-anchor="end">${d1.getMonth()+1}/${d1.getDate()}</text></svg>`;
+}
+
+/* =========================== 설정 탭 =========================== */
+function renderSettings() {
+  const s = settings();
+  view.innerHTML = `<h2>설정</h2>
+    <div class="card"><h3>휴식 타이머 기본 시간</h3>
+      <div class="tabs" style="margin-top:10px">${[60, 90, 120, 180].map(v => `<button class="btn sm ${s.rest === v ? 'on' : ''}" data-act="set-rest" data-v="${v}">${v}초</button>`).join('')}
+      <button class="btn sm ${s.rest === 0 ? 'on' : ''}" data-act="set-rest" data-v="0">끄기</button></div></div>
+    <div class="card"><h3>무게 ± 버튼 단위</h3>
+      <div class="tabs" style="margin-top:10px">${[1, 2.5, 5].map(v => `<button class="btn sm ${s.wStep === v ? 'on' : ''}" data-act="set-wstep" data-v="${v}">${v}kg</button>`).join('')}</div></div>
+    <div class="card"><h3>사용자</h3>
+      ${db.users.map(u => `<div class="list-item"><span>${esc(u.name)} ${u.id === db.currentUserId ? '<span class="chip">현재</span>' : ''}</span>
+        ${u.id === db.currentUserId ? `<button class="btn sm" data-act="user-rename">이름 변경</button>` : `<button class="btn sm" data-act="user-switch" data-id="${u.id}">전환</button>`}</div>`).join('')}
+      <button class="btn block" data-act="user-add" style="margin-top:8px">＋ 사용자 추가</button></div>
+    <div class="card"><h3>백업 / 기기 이동</h3>
+      <p class="sub">기록은 이 기기 브라우저에 저장돼요. 폰을 바꾸거나 브라우저 데이터를 지우기 전에 백업하세요.</p>
+      <button class="btn block" data-act="export">📤 내 기록 백업 파일 받기</button>
+      <div style="height:8px"></div>
+      <label class="btn block" style="display:block;text-align:center">📥 백업 파일 불러오기<input type="file" accept=".json" id="importFile" hidden></label></div>
+    <div class="card"><button class="btn danger block" data-act="user-delete">현재 사용자와 기록 전부 삭제</button></div>
+    <div class="sub" style="text-align:center">헬스 기록 v1.0</div>`;
+  document.getElementById('importFile').addEventListener('change', importBackup);
+}
+function exportBackup() {
+  const u = me();
+  const data = { app: 'healthlog', v: 1, user: u,
+    routines: myRoutines(), workouts: myWorkouts().filter(w => w.finishedAt),
+    exercises: db.exercises.filter(e => e.custom), settings: settings() };
+  const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = `healthlog-${u.name}-${dkey(Date.now())}.json`; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+function importBackup(ev) {
+  const f = ev.target.files[0]; if (!f) return;
+  f.text().then(txt => {
+    const d = JSON.parse(txt);
+    if (d.app !== 'healthlog') throw new Error('형식이 달라요');
+    for (const e of d.exercises || []) if (!db.exercises.some(x => x.id === e.id)) db.exercises.push(e);
+    let u = db.users.find(x => x.id === d.user.id);
+    if (!u) { u = { id: d.user.id, name: d.user.name }; db.users.push(u); }
+    for (const r of d.routines || []) if (!db.routines.some(x => x.id === r.id)) db.routines.push({ ...r, userId: u.id });
+    let added = 0;
+    for (const w of d.workouts || []) if (!db.workouts.some(x => x.id === w.id)) { db.workouts.push({ ...w, userId: u.id }); added++; }
+    if (d.settings) db.settings[u.id] = d.settings;
+    db.currentUserId = u.id; save(); render();
+    alert(`${u.name} 님 기록 ${added}개를 불러왔어요`);
+  }).catch(e => alert('불러오기 실패: ' + e.message));
+}
+
+/* =========================== 휴식 타이머 =========================== */
+let timerEnd = 0, timerInt = null;
+const timerEl = document.getElementById('timer');
+function startTimer(sec) {
+  if (!sec) return;
+  timerEnd = Date.now() + sec * 1000; timerEl.classList.add('show');
+  clearInterval(timerInt); tickTimer(); timerInt = setInterval(tickTimer, 250);
+}
+function tickTimer() {
+  const left = Math.max(0, Math.ceil((timerEnd - Date.now()) / 1000));
+  document.getElementById('timerT').textContent = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
+  if (left <= 0) { stopTimer(); try { navigator.vibrate?.([200, 100, 200]); } catch {} beep(); }
+}
+function stopTimer() { clearInterval(timerInt); timerEl.classList.remove('show'); }
+function beep() {
+  try { const c = new (window.AudioContext || window.webkitAudioContext)(); const o = c.createOscillator(); const g = c.createGain();
+    o.connect(g); g.connect(c.destination); o.frequency.value = 880; g.gain.value = 0.15; o.start(); o.stop(c.currentTime + 0.4); } catch {}
+}
+
+/* =========================== 모달 =========================== */
+const modalRoot = document.getElementById('modalRoot');
+let modalHandler = null;
+function modal(html, handler) {
+  modalHandler = handler;
+  modalRoot.innerHTML = `<div class="modal-bg" id="mbg"><div class="modal">${html}</div></div>`;
+}
+function closeModal() { modalRoot.innerHTML = ''; modalHandler = null; }
+modalRoot.addEventListener('click', ev => {
+  if (ev.target.id === 'mbg') return closeModal();
+  const el = ev.target.closest('[data-m]');
+  if (el && modalHandler) modalHandler(el.dataset.m, el);
+});
+function toast(msg) {
+  document.querySelectorAll('.toast').forEach(x => x.remove());
+  const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg;
+  document.body.appendChild(t); setTimeout(() => t.remove(), 2200);
+}
+
+/* =========================== 이벤트 =========================== */
+document.getElementById('nav').addEventListener('click', ev => {
+  const b = ev.target.closest('[data-tab]'); if (!b) return;
+  tab = b.dataset.tab; render(); window.scrollTo(0, 0);
+});
+document.getElementById('userBtn').addEventListener('click', () => {
+  if (!db.users.length) return;
+  modal(`<h2>사용자 선택</h2>${db.users.map(u => `<button class="pick ${u.id === db.currentUserId ? 'sel' : ''}" data-m="sw" data-id="${u.id}">${esc(u.name)}<span>${u.id === db.currentUserId ? '✓' : '›'}</span></button>`).join('')}
+    <button class="btn block" data-m="add" style="margin-top:12px">＋ 사용자 추가</button>
+    <button class="btn ghost block" data-m="close">닫기</button>`, (m, el) => {
+      if (m === 'sw') { db.currentUserId = el.dataset.id; save(); stopTimer(); closeModal(); render(); }
+      if (m === 'add') { db.currentUserId = null; closeModal(); render(); }
+      if (m === 'close') closeModal();
+    });
+});
+
+view.addEventListener('click', ev => {
+  const go = ev.target.closest('[data-tab-go]');
+  if (go) { tab = go.dataset.tabGo; render(); return; }
+  const el = ev.target.closest('[data-act]'); if (!el) return;
+  const a = el.dataset.act, d = el.dataset;
+  const w = activeW();
+  switch (a) {
+    case 'user-create': {
+      const name = document.getElementById('newUserName').value.trim();
+      if (!name) return alert('이름을 입력하세요');
+      const u = { id: uid(), name }; db.users.push(u); db.currentUserId = u.id; save(); tab = 'routines'; render(); break;
+    }
+    case 'user-switch': db.currentUserId = d.id; save(); stopTimer(); render(); break;
+    case 'user-add': db.currentUserId = null; render(); break;
+    case 'user-rename': { const n = prompt('새 이름', me().name); if (n && n.trim()) { me().name = n.trim().slice(0, 20); save(); render(); } break; }
+    case 'user-delete': {
+      if (!confirm(`${me().name} 님의 루틴과 기록을 모두 삭제할까요? 되돌릴 수 없어요.`)) return;
+      const id = db.currentUserId;
+      db.users = db.users.filter(u => u.id !== id); db.routines = db.routines.filter(r => r.userId !== id);
+      db.workouts = db.workouts.filter(x => x.userId !== id); delete db.active[id]; delete db.settings[id];
+      db.currentUserId = db.users[0]?.id || null; save(); render(); break;
+    }
+    case 'start': startWorkout(d.id); break;
+    case 'step': {
+      const s = w.entries[d.ei].sets[d.si];
+      if (d.f === 'w') s.w = Math.max(0, Math.round((s.w + settings().wStep * d.d) * 100) / 100);
+      else s.r = Math.max(0, s.r + +d.d);
+      save(); render(); break;
+    }
+    case 'done': {
+      const e = w.entries[d.ei], s = e.sets[d.si];
+      s.done = !s.done; save(); render();
+      if (s.done) {
+        const prevBest = bestWeight(e.exerciseId, w.id);
+        const curBestBefore = Math.max(0, ...e.sets.filter((x, i) => x.done && i != d.si).map(x => x.w));
+        if (s.w > 0 && s.w > prevBest && s.w > curBestBefore && prevBest > 0) toast(`🏆 ${ex(e.exerciseId).name} 신기록 ${fmtW(s.w)}kg!`);
+        startTimer(settings().rest);
+      }
+      break;
+    }
+    case 'add-set': {
+      const sets = w.entries[d.ei].sets, last = sets.at(-1);
+      sets.push(last ? { w: last.w, r: last.r, done: false } : { w: 0, r: 10, done: false }); save(); render(); break;
+    }
+    case 'del-set': w.entries[d.ei].sets.pop(); save(); render(); break;
+    case 'entry-menu': {
+      const ei = +d.ei;
+      modal(`<h2>${esc(ex(w.entries[ei].exerciseId).name)}</h2>
+        <button class="pick" data-m="up">위로 이동<span>▲</span></button>
+        <button class="pick" data-m="down">아래로 이동<span>▼</span></button>
+        <button class="pick" data-m="swap">다른 운동으로 바꾸기<span>⇄</span></button>
+        <button class="pick" data-m="rm" style="color:var(--warn)">이 운동 빼기<span>✕</span></button>
+        <button class="btn ghost block" data-m="close" style="margin-top:10px">닫기</button>`, m => {
+          const E = w.entries;
+          if (m === 'up' && ei > 0) [E[ei-1], E[ei]] = [E[ei], E[ei-1]];
+          if (m === 'down' && ei < E.length - 1) [E[ei+1], E[ei]] = [E[ei], E[ei+1]];
+          if (m === 'rm') E.splice(ei, 1);
+          if (m === 'swap') { closeModal(); pickExercise(id => { E[ei] = newEntry(id); save(); render(); }); return; }
+          closeModal(); save(); render();
+        });
+      break;
+    }
+    case 'add-ex-to-workout': pickExercise(id => { w.entries.push(newEntry(id)); save(); render(); window.scrollTo(0, document.body.scrollHeight); }); break;
+    case 'finish': {
+      const doneCount = w.entries.reduce((n, e) => n + e.sets.filter(s => s.done).length, 0);
+      if (!doneCount) { if (!confirm('완료 체크한 세트가 없어요. 그래도 끝낼까요? (기록은 저장되지 않아요)')) return;
+        db.workouts = db.workouts.filter(x => x.id !== w.id); }
+      else {
+        if (!confirm(`운동을 마칠까요? 완료 세트 ${doneCount}개, 볼륨 ${fmtW(volume(w))}kg`)) return;
+        w.finishedAt = Date.now();
+        w.entries = w.entries.map(e => ({ ...e, sets: e.sets.filter(s => s.done) })).filter(e => e.sets.length);
+      }
+      delete db.active[db.currentUserId]; stopTimer(); save(); tab = doneCount ? 'history' : 'workout';
+      ui.histOpen = doneCount ? w.id : null; render(); if (doneCount) toast('💪 수고하셨어요!'); break;
+    }
+    case 'cancel-workout':
+      if (!confirm('진행 중인 운동을 삭제할까요?')) return;
+      db.workouts = db.workouts.filter(x => x.id !== w.id); delete db.active[db.currentUserId]; stopTimer(); save(); render(); break;
+    case 'routine-new': routineEditor(null); break;
+    case 'routine-edit': routineEditor(db.routines.find(r => r.id === d.id)); break;
+    case 'routine-share': {
+      const code = encodeRoutine(db.routines.find(r => r.id === d.id));
+      modal(`<h2>루틴 공유</h2><p class="sub">이 코드를 친구에게 보내면 루틴 탭 → "공유 코드로 가져오기"에서 붙여넣을 수 있어요.</p>
+        <textarea id="shareCode" rows="4" readonly>${esc(code)}</textarea>
+        <button class="btn primary block" data-m="copy" style="margin-top:10px">코드 복사</button>
+        <button class="btn ghost block" data-m="close">닫기</button>`, m => {
+          if (m === 'copy') { const t = document.getElementById('shareCode'); t.select();
+            (navigator.clipboard?.writeText(code) || Promise.reject()).then(() => toast('복사됐어요'), () => { document.execCommand('copy'); toast('복사됐어요'); }); }
+          if (m === 'close') closeModal();
+        });
+      break;
+    }
+    case 'routine-import':
+      modal(`<h2>루틴 가져오기</h2><textarea id="impCode" rows="4" placeholder="HL1:로 시작하는 코드를 붙여넣으세요"></textarea>
+        <button class="btn primary block" data-m="ok" style="margin-top:10px">가져오기</button>
+        <button class="btn ghost block" data-m="close">닫기</button>`, m => {
+          if (m === 'ok') { try { const r = decodeRoutine(document.getElementById('impCode').value); db.routines.push(r); save(); closeModal(); render(); toast(`"${r.name}" 추가됨`); }
+            catch { alert('코드가 올바르지 않아요'); } }
+          if (m === 'close') closeModal();
+        });
+      break;
+    case 'cal': {
+      let { y, m } = ui.calMonth; m += +d.d; if (m < 0) { m = 11; y--; } if (m > 11) { m = 0; y++; }
+      ui.calMonth = { y, m }; render(); break;
+    }
+    case 'hist-toggle': ui.histOpen = ui.histOpen === d.id ? null : d.id; render(); break;
+    case 'hist-del':
+      if (confirm('이 운동 기록을 삭제할까요?')) { db.workouts = db.workouts.filter(x => x.id !== d.id); save(); render(); } break;
+    case 'set-rest': settings().rest = +d.v; save(); render(); break;
+    case 'set-wstep': settings().wStep = +d.v; save(); render(); break;
+    case 'export': exportBackup(); break;
+  }
+});
+/* 직접 입력 & 메모 */
+view.addEventListener('change', ev => {
+  const el = ev.target, d = el.dataset, w = activeW();
+  if (d.act === 'edit' && w) { const s = w.entries[d.ei].sets[d.si]; s[d.f] = Math.max(0, d.f === 'r' ? Math.round(num(el.value)) : num(el.value)); save(); render(); }
+  if (d.act === 'stat-ex') { ui.statEx = el.value; render(); }
+});
+view.addEventListener('input', ev => {
+  const el = ev.target, d = el.dataset, w = activeW();
+  if (d.act === 'memo' && w) { w.entries[d.ei].memo = el.value; save(); }
+});
+view.addEventListener('focusin', ev => { if (ev.target.type === 'number') ev.target.select(); });
+document.getElementById('timer').addEventListener('click', ev => {
+  const b = ev.target.closest('[data-act]'); if (!b) return;
+  if (b.dataset.act === 'timer-stop') stopTimer();
+  if (b.dataset.act === 'timer-add') { timerEnd = Math.max(Date.now() + 1000, timerEnd + b.dataset.v * 1000); tickTimer(); }
+});
+document.addEventListener('keydown', ev => { if (ev.key === 'Enter' && ev.target.id === 'newUserName') view.querySelector('[data-act=user-create]').click(); });
+setInterval(() => { if (tab === 'workout' && activeW() && !document.activeElement?.matches('input,textarea') && !modalHandler) {
+  const sub = view.querySelector('.sub'); const w = activeW();
+  if (sub && w) sub.textContent = `${Math.floor((Date.now() - w.startedAt) / 60000)}분 경과 · 볼륨 ${fmtW(volume(w))}kg`; } }, 30000);
+
+if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
+render();
+</script>
+</body>
+</html>
