@@ -168,6 +168,24 @@ const volume = w => w.entries.reduce((s, e) => s + e.sets.filter(x => x.done).re
 const SB_URL = 'https://qlrtihftcfczoqmzpopz.supabase.co';
 const SB_KEY = 'sb_publishable_Lfum9Fa5wzCPULfte39KPw_rG-5I9X7'; // 공개용 키 (브라우저에 넣어도 되는 키)
 db.myPosts ||= {}; // postId -> 삭제용 토큰
+db.myCommunity ||= {}; // 커뮤니티 글/댓글 id -> 삭제용 토큰
+async function loadCommunity() {
+  ui.commLoading = true; ui.commErr = null;
+  try { ui.comm = await sb('/rest/v1/community?select=id,created_at,user_name,body,comments(id,created_at,user_name,body)&order=created_at.desc&comments.order=created_at.asc&limit=50'); }
+  catch (e) { ui.commErr = e.message; }
+  ui.commLoading = false;
+  if (tab === 'history' && ui.histMode === 'comm') render();
+}
+async function sendCommunity(table, payload) {
+  const id = rid(), token = rid() + rid();
+  await sb('/rest/v1/' + table, { method: 'POST', headers: { Prefer: 'return=minimal' },
+    body: JSON.stringify({ id, user_name: me().name, owner_token: token, ...payload }) });
+  db.myCommunity[id] = token; save();
+}
+async function deleteCommunity(fn, id) {
+  await sb('/rest/v1/rpc/' + fn, { method: 'POST', body: JSON.stringify({ p_id: id, p_token: db.myCommunity[id] }) });
+  delete db.myCommunity[id]; save();
+}
 async function sb(path, opts = {}) {
   const res = await fetch(SB_URL + path, { ...opts,
     headers: { apikey: SB_KEY, 'Content-Type': 'application/json', ...(opts.headers || {}) } });
@@ -249,7 +267,7 @@ function bestWeight(exId, excludeId) {
 
 /* =========================== 라우팅 =========================== */
 let tab = 'workout';
-let ui = { statEx: null, histOpen: null, calMonth: null, histMode: 'mine', feed: null, feedOpen: null, feedLoading: false, feedErr: null };
+let ui = { comm: null, commLoading: false, commErr: null, commOpen: null, commDraft: '', cmtDraft: {}, statEx: null, histOpen: null, calMonth: null, histMode: 'mine', feed: null, feedOpen: null, feedLoading: false, feedErr: null };
 const view = document.getElementById('view');
 
 function render() {
@@ -454,7 +472,37 @@ function decodeRoutine(code) {
 function histSwitch() {
   return `<div class="tabs" style="margin-bottom:14px">
     <button class="btn sm ${ui.histMode === 'mine' ? 'on' : ''}" data-act="hist-mode" data-v="mine">내 기록</button>
-    <button class="btn sm ${ui.histMode === 'feed' ? 'on' : ''}" data-act="hist-mode" data-v="feed">👥 친구 피드</button></div>`;
+    <button class="btn sm ${ui.histMode === 'feed' ? 'on' : ''}" data-act="hist-mode" data-v="feed">👥 친구 피드</button>
+    <button class="btn sm ${ui.histMode === 'comm' ? 'on' : ''}" data-act="hist-mode" data-v="comm">💬 커뮤니티</button></div>`;
+}
+function renderCommunity() {
+  if (!ui.comm && !ui.commLoading && !ui.commErr) loadCommunity();
+  let body;
+  if (ui.commErr) body = `<div class="card empty">커뮤니티를 불러오지 못했어요.<br><span class="sub">${esc(ui.commErr)}</span><br><br>
+    <span class="sub">이 화면에서 계속 안 되면 <a href="${SITE_URL}" target="_blank" rel="noopener" style="color:var(--accent)">GitHub 앱 링크</a>에서 열어주세요.</span><br><br>
+    <button class="btn" data-act="comm-refresh">다시 시도</button></div>`;
+  else if (!ui.comm) body = '<div class="card empty">불러오는 중…</div>';
+  else if (!ui.comm.length) body = '<div class="card empty">아직 글이 없어요. 첫 글을 남겨보세요!</div>';
+  else body = ui.comm.map(p => {
+    const cs = p.comments || [], open = ui.commOpen === p.id, mine = !!db.myCommunity[p.id];
+    return `<div class="card">
+      <div class="row between"><b>${esc(p.user_name)}${mine ? ' <span class="chip">나</span>' : ''}</b>
+        <span class="sub">${timeAgo(new Date(p.created_at).getTime())}${mine ? ` · <button class="btn ghost sm" style="padding:2px 4px;color:var(--warn)" data-act="comm-del" data-id="${p.id}">삭제</button>` : ''}</span></div>
+      <div style="margin:8px 0;white-space:pre-wrap;word-break:break-word">${esc(p.body)}</div>
+      <button class="btn ghost sm" style="padding-left:0" data-act="comm-toggle" data-id="${p.id}">💬 댓글 ${cs.length}${open ? ' ▲' : ''}</button>
+      ${open ? `<div>${cs.map(c => `<div style="padding:8px 0;border-top:1px solid var(--line)">
+          <div class="row between"><b style="font-size:14px">${esc(c.user_name)}</b>
+            <span class="sub">${timeAgo(new Date(c.created_at).getTime())}${db.myCommunity[c.id] ? ` · <button class="btn ghost sm" style="padding:2px 4px;color:var(--warn)" data-act="cmt-del" data-id="${c.id}">삭제</button>` : ''}</span></div>
+          <div style="white-space:pre-wrap;word-break:break-word;font-size:15px">${esc(c.body)}</div></div>`).join('')}
+        <div class="row" style="margin-top:8px"><input type="text" class="cmt-in" data-id="${p.id}" placeholder="댓글 달기" maxlength="300" value="${esc(ui.cmtDraft[p.id] || '')}" autocomplete="off">
+          <button class="btn primary sm" style="height:44px;flex-shrink:0;white-space:nowrap" data-act="cmt-send" data-id="${p.id}">등록</button></div></div>` : ''}
+    </div>`;
+  }).join('');
+  view.innerHTML = `<div class="row between"><h2>운동 기록</h2><button class="btn sm" data-act="comm-refresh">↻ 새로고침</button></div>${histSwitch()}
+    <div class="card"><textarea id="commIn" rows="3" maxlength="1000" placeholder="자유롭게 글을 남겨보세요 (운동 질문, 인증, 같이 운동할 사람 등)">${esc(ui.commDraft)}</textarea>
+      <div class="row between" style="margin-top:8px"><span class="sub">${esc(me().name)} 이름으로 올라가요</span>
+        <button class="btn primary sm" data-act="comm-send">글 올리기</button></div></div>
+    ${body}`;
 }
 function renderFeed() {
   if (!ui.feed && !ui.feedLoading && !ui.feedErr) loadFeed();
@@ -481,6 +529,7 @@ function renderFeed() {
 }
 function renderHistory() {
   if (ui.histMode === 'feed') return renderFeed();
+  if (ui.histMode === 'comm') return renderCommunity();
   const ws = myWorkouts().filter(w => w.finishedAt);
   const now = new Date();
   const cm = ui.calMonth || { y: now.getFullYear(), m: now.getMonth() };
@@ -588,7 +637,7 @@ function renderSettings() {
       <label class="btn block" style="display:block;text-align:center">📥 백업 파일 불러오기<input type="file" accept=".json,application/json" id="importFile" hidden></label>
       <button class="btn block" data-act="import-paste" style="margin-top:8px">📋 복사한 백업 붙여넣기</button></div>
     <div class="card"><button class="btn danger block" data-act="user-delete">현재 사용자와 기록 전부 삭제</button></div>
-    <div class="sub" style="text-align:center">헬스 기록 v1.3</div>`;
+    <div class="sub" style="text-align:center">헬스 기록 v1.4</div>`;
   document.getElementById('importFile').addEventListener('change', importBackup);
 }
 function exportBackup() {
@@ -596,6 +645,7 @@ function exportBackup() {
   const data = { app: 'healthlog', v: 1, user: u,
     routines: myRoutines(), workouts: myWorkouts().filter(w => w.finishedAt),
     exercises: db.exercises.filter(e => e.custom), settings: settings(),
+    myCommunity: db.myCommunity,
     myPosts: Object.fromEntries(myWorkouts().filter(w => w.postId && db.myPosts[w.postId]).map(w => [w.postId, db.myPosts[w.postId]])) };
   const txt = JSON.stringify(data);
   modal(`<h2>백업</h2><p class="sub">파일로 받거나, 아래 내용을 복사해서 메모장·카톡 나에게 보내기 등에 저장해두세요.</p>
@@ -628,7 +678,7 @@ function importText(txt) {
     for (const r of d.routines || []) if (!db.routines.some(x => x.id === r.id)) db.routines.push({ ...r, userId: u.id });
     let added = 0;
     for (const w of d.workouts || []) if (!db.workouts.some(x => x.id === w.id)) { db.workouts.push({ ...w, userId: u.id }); added++; }
-    if (d.settings) db.settings[u.id] = d.settings; Object.assign(db.myPosts, d.myPosts || {});
+    if (d.settings) db.settings[u.id] = d.settings; Object.assign(db.myPosts, d.myPosts || {}); Object.assign(db.myCommunity, d.myCommunity || {});
     db.currentUserId = u.id; save(); render();
     notify(`${u.name} 님 기록 ${added}개를 불러왔어요`);
   }).catch(e => notify('불러오기 실패: ' + e.message));
@@ -801,7 +851,32 @@ view.addEventListener('click', ev => {
       ui.calMonth = { y, m }; render(); break;
     }
     case 'hist-toggle': ui.histOpen = ui.histOpen === d.id ? null : d.id; render(); break;
-    case 'hist-mode': ui.histMode = d.v; if (d.v === 'feed') ui.feed = null; render(); break;
+    case 'hist-mode': ui.histMode = d.v; if (d.v === 'feed') ui.feed = null; if (d.v === 'comm') { ui.comm = null; ui.commErr = null; } render(); break;
+    case 'comm-refresh': ui.comm = null; ui.commErr = null; render(); break;
+    case 'comm-toggle': ui.commOpen = ui.commOpen === d.id ? null : d.id; render();
+      if (ui.commOpen) view.querySelector(`.cmt-in[data-id="${d.id}"]`)?.focus({ preventScroll: true }); break;
+    case 'comm-send': {
+      const text = (document.getElementById('commIn')?.value || '').trim();
+      if (!text) { document.getElementById('commIn')?.focus(); return; }
+      el.disabled = true; el.textContent = '올리는 중…';
+      sendCommunity('community', { body: text.slice(0, 1000) }).then(() => { ui.commDraft = ''; ui.comm = null; render(); toast('글을 올렸어요'); },
+        e => { notify(feedFailMsg(e)); el.disabled = false; el.textContent = '글 올리기'; });
+      break;
+    }
+    case 'cmt-send': {
+      const inp = view.querySelector(`.cmt-in[data-id="${d.id}"]`), text = (inp?.value || '').trim();
+      if (!text) { inp?.focus(); return; }
+      el.disabled = true;
+      sendCommunity('comments', { post_id: d.id, body: text.slice(0, 300) }).then(() => { delete ui.cmtDraft[d.id]; ui.commOpen = d.id; ui.comm = null; render(); },
+        e => { notify(feedFailMsg(e)); el.disabled = false; });
+      break;
+    }
+    case 'comm-del': case 'cmt-del': {
+      const isPost = a === 'comm-del';
+      ask(isPost ? '이 글을 삭제할까요?\n(댓글도 같이 지워져요)' : '이 댓글을 삭제할까요?', '삭제', true).then(ok => { if (!ok) return;
+        deleteCommunity(isPost ? 'delete_community' : 'delete_comment', d.id).then(() => { ui.comm = null; render(); toast('삭제했어요'); }, e => notify(feedFailMsg(e))); });
+      break;
+    }
     case 'feed-refresh': ui.feed = null; ui.feedErr = null; render(); break;
     case 'feed-toggle': ui.feedOpen = ui.feedOpen === d.id ? null : d.id; render(); break;
     case 'post': {
@@ -837,12 +912,17 @@ view.addEventListener('change', ev => {
 view.addEventListener('input', ev => {
   const el = ev.target, d = el.dataset, w = activeW();
   if (d.act === 'memo' && w) { w.entries[d.ei].memo = el.value; save(); }
+  if (el.id === 'commIn') ui.commDraft = el.value;
+  if (el.classList.contains('cmt-in')) ui.cmtDraft[d.id] = el.value;
 });
 view.addEventListener('focusin', ev => { if (ev.target.type === 'number') ev.target.select(); });
 document.getElementById('timer').addEventListener('click', ev => {
   const b = ev.target.closest('[data-act]'); if (!b) return;
   if (b.dataset.act === 'timer-stop') stopTimer();
   if (b.dataset.act === 'timer-add') { timerEnd = Math.max(Date.now() + 1000, timerEnd + b.dataset.v * 1000); tickTimer(); }
+});
+view.addEventListener('keydown', ev => {
+  if (ev.key === 'Enter' && !ev.isComposing && ev.target.classList?.contains('cmt-in')) { ev.preventDefault(); view.querySelector(`[data-act=cmt-send][data-id="${ev.target.dataset.id}"]`)?.click(); }
 });
 document.addEventListener('keydown', ev => { if (ev.key === 'Enter' && ev.target.id === 'newUserName') view.querySelector('[data-act=user-create]').click(); });
 setInterval(() => { if (tab === 'workout' && activeW() && !document.activeElement?.matches('input,textarea') && !modalHandler) {
